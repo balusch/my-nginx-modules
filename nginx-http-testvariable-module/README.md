@@ -13,7 +13,7 @@ http {
         server_name  localhost;
 
         location /myspace {
-            allow_in $remote_addr 9.69.50.199;
+            allow_in $remote_addr 10.69.50.199;
         }
     }
 }
