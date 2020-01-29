@@ -65,6 +65,7 @@ ngx_module_t  ngx_http_testvariable_module = {
         NGX_MODULE_V1_PADDING
 };
 
+
 static void *
 ngx_http_allow_in_create_loc_conf(ngx_conf_t *cf)
 {
