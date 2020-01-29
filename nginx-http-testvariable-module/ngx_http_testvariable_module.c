@@ -36,29 +36,32 @@ static ngx_command_t  ngx_http_testvariable_commands[] = {
 
 
 static ngx_http_module_t  ngx_http_testvariable_module_ctx = {
-        NULL,
-        ngx_http_allow_in_init,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        ngx_http_allow_in_create_loc_conf,
-        NULL
+        NULL,                               /* preconfiguration */
+        ngx_http_allow_in_init,             /* postconfiguration */
+
+        NULL,                               /* create main configuration */
+        NULL,                               /* init main configuration */
+
+        NULL,                               /* create server configuration */
+        NULL,                               /* merge server configuration */
+
+        ngx_http_allow_in_create_loc_conf,  /* create location configuration */
+        NULL                                /* merge location configuration */
 };
 
 
 ngx_module_t  ngx_http_testvariable_module = {
-        NGX_MODULE_V1,                          /* */
-        &ngx_http_testvariable_module_ctx,         /* */
-        ngx_http_testvariable_commands,
-        NGX_HTTP_MODULE,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
-        NULL,
+        NGX_MODULE_V1,
+        &ngx_http_testvariable_module_ctx,  /* module context */
+        ngx_http_testvariable_commands,     /* module directives */
+        NGX_HTTP_MODULE,                    /* module type */
+        NULL,                               /* init master */
+        NULL,                               /* init module */
+        NULL,                               /* init process */
+        NULL,                               /* init thread */
+        NULL,                               /* exit thread */
+        NULL,                               /* exit process */
+        NULL,                               /* exit master */
         NGX_MODULE_V1_PADDING
 };
 
@@ -76,6 +79,7 @@ ngx_http_allow_in_create_loc_conf(ngx_conf_t *cf)
 
     return aicf;
 }
+
 
 static char *
 ngx_http_allow_in(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -106,6 +110,7 @@ ngx_http_allow_in(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 }
 
+
 static ngx_int_t
 ngx_http_allow_in_init(ngx_conf_t *cf)
 {
@@ -123,6 +128,7 @@ ngx_http_allow_in_init(ngx_conf_t *cf)
 
     return NGX_OK;
 }
+
 
 static ngx_int_t
 ngx_http_allow_in_handler(ngx_http_request_t *r)
