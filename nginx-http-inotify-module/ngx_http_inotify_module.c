@@ -17,12 +17,12 @@ typedef struct {
 } ngx_http_inotify_main_conf_t ;
 
 
+
 static ngx_int_t ngx_http_inotify_init_process(ngx_cycle_t *cycle);
 static void ngx_http_inotify_read_handler(ngx_event_t *e);
+static void ngx_http_inotify_dump_event(ngx_log_t *log, struct inotify_event *ie);
 
-static void ngx_http_inotify_dump_event(ngx_log_t *log,
-    struct inotify_event *ie);
-
+static ngx_int_t ngx_http_inotify_postconfiguration(ngx_conf_t *cf);
 static char *ngx_http_inotify(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static void *ngx_http_inotify_create_main_conf(ngx_conf_t *cf);
 
@@ -69,7 +69,7 @@ ngx_command_t  ngx_http_inotify_commands[] = {
 
 ngx_http_module_t  ngx_http_inotify_module_ctx = {
         NULL,                               /* preconfiguration */
-        NULL,                               /* postconfiguration */
+        ngx_http_inotify_postconfiguration, /* postconfiguration */
 
         ngx_http_inotify_create_main_conf,  /* create main configuration */
         NULL,                               /* init main configuration */
@@ -101,8 +101,6 @@ ngx_module_t ngx_http_inotify_module = {
 static ngx_int_t
 ngx_http_inotify_handler(ngx_http_request_t *r)
 {
-    ngx_str_t                     *paths;
-    ngx_int_t                      i;
     ngx_http_inotify_main_conf_t  *imcf;
 
     imcf = ngx_http_get_module_main_conf(r, ngx_http_inotify_module);
@@ -115,6 +113,7 @@ ngx_http_inotify_handler(ngx_http_request_t *r)
     }
 
     // TODO
+    return NGX_OK;
 }
 
 static char *
@@ -146,13 +145,51 @@ ngx_http_inotify_create_main_conf(ngx_conf_t *cf)
     return imcf;
 }
 
+static ngx_int_t
+ngx_http_inotify_postconfiguration(ngx_conf_t *cf)
+{
+    printf("call inotfiy postconfiguration\n");
+
+    ngx_str_t *paths;
+    ngx_uint_t                     i;
+    ngx_http_inotify_main_conf_t  *imcf;
+
+    imcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_inotify_module);
+    if (imcf == NULL) {
+        printf("no inotify main conf\n");
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cf->log, 0, "no inotify main conf");
+        return NGX_ERROR;
+    }
+
+    if (imcf->paths == NULL) {
+        printf("no file to watch\n");
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cf->log, 0, "no file to watch");
+        return NGX_OK;
+    }
+
+    paths = imcf->paths->elts;
+
+    for (i = 0; i < imcf->paths->nelts; i++) {
+        printf("watch file: %.*s\n", (int) paths[i].len, paths[i].data);
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cf->log, 0, "watch file: %V",
+                       paths + i);
+    }
+
+    return NGX_OK;
+}
+
 
 static ngx_int_t
 ngx_http_inotify_init_process(ngx_cycle_t *cycle)
 {
-    ngx_str_t                     *paths;
-    ngx_int_t                      i, wd, inotify_fd;
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "call inotify init process");
+
+    int flag;
+    ngx_str_t                    *paths;
+    ngx_uint_t                     i;
     ngx_event_t                   *rev;
+    ngx_socket_t                   s, wd;
     ngx_connection_t              *c;
     ngx_http_inotify_main_conf_t  *imcf;
 
@@ -160,33 +197,43 @@ ngx_http_inotify_init_process(ngx_cycle_t *cycle)
         return NGX_OK;
     }
 
-    inotify_fd = inotify_init1(0);
-    if (inotify_fd < 0) {
+    s = inotify_init1(0);
+    if (s < 0) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0, "inotify_init1(0) failed");
         return NGX_ERROR;
     }
 
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0, "inotify fd: %d", s);
+
     imcf = ngx_http_cycle_get_module_main_conf(cycle,
-                                                ngx_http_inotify_module);
+                                               ngx_http_inotify_module);
     if (imcf == NULL) {
         return NGX_ERROR;
     }
 
-    /* no file to watch */
-
     if (imcf->paths == NGX_CONF_UNSET_PTR) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
+                       "inotify no file to watch");
         return NGX_OK;
     }
 
     paths = imcf->paths->elts;
 
+    flag = IN_CREATE | IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_ONLYDIR;
+
     for (i = 0; i < imcf->paths->nelts; i++) {
-        wd = inotify_add_watch(inotify_fd, (char *) paths[i].data);
+
+        wd = inotify_add_watch(s, (char *)(paths[i].data), flag);
+
+        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
+                       "inotify watch: %V, wd: %d", paths + i, wd);
+
         if (wd < 0) {
             return NGX_ERROR;
         }
     }
 
-    c = ngx_get_connection(inotify_fd, cycle->log);
+    c = ngx_get_connection(s, cycle->log);
     if (c == NULL) {
         return NGX_ERROR;
     }
@@ -195,8 +242,9 @@ ngx_http_inotify_init_process(ngx_cycle_t *cycle)
 
     rev = c->read;
     rev->handler = ngx_http_inotify_read_handler;
+    rev->log = c->log;
 
-    if (ngx_add_event(rev, NGX_READ_EVENT, 0) < 0) {
+    if (ngx_add_event(rev, NGX_READ_EVENT, NGX_LEVEL_EVENT) == NGX_ERROR) {
         return NGX_ERROR;
     }
 
@@ -208,19 +256,17 @@ static void
 ngx_http_inotify_read_handler(ngx_event_t *ev)
 {
     static const int INOTIFY_READ_BUF_LEN =
-        (100 * (sizeof(struct inotify_event) + NAME_MAX + 1));
+            (100 * (sizeof(struct inotify_event) + NAME_MAX + 1));
 
     char                          *p;
     ssize_t                        n;
     ngx_connection_t              *c;
     struct inotify_event          *ie;
-    ngx_http_inotify_main_conf_t  *imcf;
 
     char buf[INOTIFY_READ_BUF_LEN]
-            __attribute__ ((aligned(__alignof__(struct inotify_event))))
+            __attribute__((aligned(__alignof__(struct inotify_event))));
 
     c = ev->data;
-    imcf = c->data;
 
     n = read(c->fd, buf, sizeof(buf));
 
@@ -293,6 +339,6 @@ ngx_http_inotify_dump_event(ngx_log_t *log, struct inotify_event *ie)
 
     if (ie->len > 0) {
         ngx_log_debug1(NGX_LOG_DEBUG_HTTP, log, 0, "dump event, name: %s",
-                      ie->name);
+                       ie->name);
     }
 }
