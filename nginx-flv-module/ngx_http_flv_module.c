@@ -1153,7 +1153,7 @@ ngx_flv_amf_get(ngx_http_flv_file_t *flv, void *p, size_t n)
 
     data = flv->metadata.buf->pos;
     if (p != NULL) {
-        ngx_cpymem(p, data, n);
+        ngx_memcpy(p, data, n);
     }
     flv->metadata.buf->pos += n;
 
